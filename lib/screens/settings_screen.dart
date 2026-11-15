@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -13,11 +15,17 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _CheckResult {
-  _CheckResult(this.name, this.ok, this.detail);
+enum _Status { waiting, running, passed, failed }
+
+/// One line of the connection test, updated live as it runs.
+class _Check {
+  _Check(this.name, this.run);
   final String name;
-  final bool ok;
-  final String detail;
+  final Future<String> Function(void Function(String note) note) run;
+  _Status status = _Status.waiting;
+  String detail = 'Waiting';
+  DateTime? started;
+  Duration? took;
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
@@ -26,7 +34,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _modelCtrl = TextEditingController();
   bool _busy = false;
   String? _authError;
-  List<_CheckResult> _results = const [];
+  List<_Check> _checks = const [];
+  Timer? _ticker;
 
   @override
   void initState() {
@@ -42,6 +51,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _ticker?.cancel();
     _keyCtrl.dispose();
     _modelCtrl.dispose();
     super.dispose();
@@ -71,49 +81,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
   }
 
-  Future<_CheckResult> _check(String name, Future<String> Function() run) async {
+  Future<void> _runOne(_Check c) async {
+    setState(() {
+      c.status = _Status.running;
+      c.detail = 'Running';
+      c.started = DateTime.now();
+    });
     try {
-      return _CheckResult(name, true, await run());
+      final result = await c.run((note) {
+        if (mounted) setState(() => c.detail = note);
+      });
+      c.status = _Status.passed;
+      c.detail = result;
     } catch (e) {
-      return _CheckResult(name, false, e.toString());
+      c.status = _Status.failed;
+      c.detail = e.toString();
     }
+    c.took = DateTime.now().difference(c.started!);
+    if (mounted) setState(() {});
   }
 
   Future<void> _runChecks() async {
     await _save();
-    setState(() {
-      _busy = true;
-      _results = const [];
-    });
     final api = GoogleApi();
     final gemini = GeminiClient(_settings);
-    final results = <_CheckResult>[
-      await _check('Drive: open Receipts folder', () async {
+    final checks = [
+      _Check('Drive: open Receipts folder', (_) async {
         return 'Found "${await api.receiptsFolderName()}"';
       }),
-      await _check('Drive: write a test file', () async {
+      _Check('Drive: write a test file', (_) async {
         await api.driveWriteCheck();
         return 'Created and removed a test file';
       }),
-      await _check('Ledger: read categories', () async {
+      _Check('Ledger: read categories', (_) async {
         final cats = await api.readCategories();
         return '${cats.length} categories: ${cats.take(4).join(', ')}…';
       }),
-      await _check('AI: reach Gemini', () => gemini.describeModel()),
-      await _check('AI: Gemini reply', () async {
+      _Check('AI: reach Gemini', (_) => gemini.describeModel()),
+      _Check('AI: Gemini reply', (note) async {
         final reply = await gemini.generateText(
           'Reply with the single word OK.',
           thinkingLevel: 'minimal',
+          onRetry: (attempt, of) => note('Connection dropped, retry $attempt of $of'),
         );
         return 'Replied "$reply"';
       }),
     ];
-    if (mounted) {
-      setState(() {
-        _results = results;
-        _busy = false;
-      });
+    setState(() {
+      _busy = true;
+      _checks = checks;
+    });
+    // Redraw once a second so running checks show their elapsed time.
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+    // All checks run at the same time; each line updates as it finishes.
+    await Future.wait(checks.map(_runOne));
+    _ticker?.cancel();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Widget _statusIcon(_Check c) {
+    switch (c.status) {
+      case _Status.waiting:
+        return const Icon(Icons.schedule, color: Colors.grey);
+      case _Status.running:
+        return const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2.5),
+        );
+      case _Status.passed:
+        return const Icon(Icons.check_circle, color: Colors.green);
+      case _Status.failed:
+        return Icon(Icons.error, color: Theme.of(context).colorScheme.error);
     }
+  }
+
+  String _timing(_Check c) {
+    if (c.took != null) return ' · ${(c.took!.inMilliseconds / 1000).toStringAsFixed(1)}s';
+    if (c.started != null) {
+      return ' · ${DateTime.now().difference(c.started!).inSeconds}s';
+    }
+    return '';
+  }
+
+  Widget _summary() {
+    final done = _checks.where((c) => c.status == _Status.passed || c.status == _Status.failed).length;
+    final failed = _checks.where((c) => c.status == _Status.failed).length;
+    final total = _checks.length;
+    final String text;
+    if (_busy) {
+      text = '$done of $total done';
+    } else if (failed == 0) {
+      text = 'All $total checks passed';
+    } else {
+      text = '$failed of $total checks failed';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 4),
+      child: Text(text, style: Theme.of(context).textTheme.titleSmall),
+    );
   }
 
   @override
@@ -183,20 +251,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: const Icon(Icons.fact_check_outlined),
             label: const Text('Run connection test'),
           ),
-          if (_busy) const Padding(
-            padding: EdgeInsets.all(16),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          for (final r in _results)
+          if (_checks.isNotEmpty) _summary(),
+          for (final c in _checks)
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                r.ok ? Icons.check_circle : Icons.error,
-                color: r.ok ? Colors.green : Theme.of(context).colorScheme.error,
-              ),
-              title: Text(r.name),
+              leading: _statusIcon(c),
+              title: Text('${c.name}${_timing(c)}'),
               // Selectable, so an error can be copied and pasted to Claude.
-              subtitle: SelectableText(r.detail),
+              subtitle: SelectableText(c.detail),
             ),
         ],
       ),

@@ -33,7 +33,11 @@ class GeminiClient {
   }
 
   /// Generates text. [thinkingLevel]: minimal, low, medium or high.
-  Future<String> generateText(String prompt, {String thinkingLevel = 'low'}) async {
+  Future<String> generateText(
+    String prompt, {
+    String thinkingLevel = 'low',
+    void Function(int attempt, int of)? onRetry,
+  }) async {
     final key = await _requireKey();
     final model = await _settings.geminiModel();
     final uri = Uri.parse('$_base/$model:streamGenerateContent?alt=sse');
@@ -70,6 +74,7 @@ class GeminiClient {
         client.close();
       }
       if (attempt < _attempts) {
+        onRetry?.call(attempt + 1, _attempts);
         await Future<void>.delayed(Duration(seconds: attempt * 2));
       }
     }
