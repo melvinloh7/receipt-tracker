@@ -117,7 +117,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        // Extra bottom space so nothing sits under Android's navigation buttons.
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).viewPadding.bottom + 24,
+        ),
         children: [
           Text('Google account', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -185,7 +191,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: r.ok ? Colors.green : Theme.of(context).colorScheme.error,
               ),
               title: Text(r.name),
-              subtitle: Text(r.detail),
+              // Selectable, so an error can be copied and pasted to Claude.
+              subtitle: SelectableText(r.detail),
             ),
         ],
       ),
