@@ -7,6 +7,7 @@ import '../services/background.dart';
 import '../services/gemini.dart';
 import '../services/google_api.dart';
 import '../services/google_auth.dart';
+import '../services/image_pipeline.dart';
 import '../services/settings_store.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -33,6 +34,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _settings = SettingsStore();
   final _keyCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
+  final _longSideCtrl = TextEditingController();
+  final _longReceiptCtrl = TextEditingController();
+  final _qualityCtrl = TextEditingController();
+  bool _greyscale = true;
   bool _busy = false;
   String? _authError;
   List<_Check> _checks = const [];
@@ -47,6 +52,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     _keyCtrl.text = await _settings.geminiKey();
     _modelCtrl.text = await _settings.geminiModel();
+    final c = await _settings.compression();
+    _longSideCtrl.text = '${c.longSide}';
+    _longReceiptCtrl.text = '${c.longReceiptSide}';
+    _qualityCtrl.text = '${c.quality}';
+    _greyscale = c.greyscale;
     if (mounted) setState(() {});
   }
 
@@ -55,6 +65,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ticker?.cancel();
     _keyCtrl.dispose();
     _modelCtrl.dispose();
+    _longSideCtrl.dispose();
+    _longReceiptCtrl.dispose();
+    _qualityCtrl.dispose();
     super.dispose();
   }
 
@@ -78,6 +91,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     await _settings.save(geminiKey: _keyCtrl.text, geminiModel: _modelCtrl.text);
+    const d = CompressionSettings();
+    await _settings.saveCompression(CompressionSettings(
+      longSide: int.tryParse(_longSideCtrl.text) ?? d.longSide,
+      longReceiptSide: int.tryParse(_longReceiptCtrl.text) ?? d.longReceiptSide,
+      quality: (int.tryParse(_qualityCtrl.text) ?? d.quality).clamp(10, 100),
+      greyscale: _greyscale,
+    ));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
   }
@@ -173,6 +193,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _ticker?.cancel();
     if (mounted) setState(() => _busy = false);
   }
+
+  Widget _numberField(TextEditingController ctrl, String label) => TextField(
+        controller: ctrl,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+      );
 
   Widget _statusIcon(_Check c) {
     switch (c.status) {
@@ -277,7 +303,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          OutlinedButton(onPressed: _save, child: const Text('Save')),
+          const Divider(height: 40),
+          Text('Receipt compression', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text('Applies to receipts scanned from now on.',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: _numberField(_longSideCtrl, 'Long side (px)')),
+            const SizedBox(width: 12),
+            Expanded(child: _numberField(_longReceiptCtrl, 'Long receipts (px)')),
+          ]),
+          const SizedBox(height: 12),
+          _numberField(_qualityCtrl, 'JPEG quality (10–100)'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Greyscale'),
+            value: _greyscale,
+            onChanged: (v) => setState(() => _greyscale = v),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(onPressed: _save, child: const Text('Save settings')),
           const Divider(height: 40),
           FilledButton.icon(
             onPressed: _busy ? null : _runChecks,
