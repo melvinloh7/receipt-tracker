@@ -13,5 +13,5 @@ class AppConfig {
       '4896366558-r7su3se43fi58jrjob0jokth4ete9j09.apps.googleusercontent.com';
 
   /// Default Gemini model; can be changed in Settings.
-  static const defaultGeminiModel = 'gemini-flash-latest';
+  static const defaultGeminiModel = 'gemini-3.8-flash';
 }
