@@ -99,8 +99,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final cats = await api.readCategories();
         return '${cats.length} categories: ${cats.take(4).join(', ')}…';
       }),
+      await _check('AI: reach Gemini', () => gemini.describeModel()),
       await _check('AI: Gemini reply', () async {
-        final reply = await gemini.generateText('Reply with the single word OK.');
+        final reply = await gemini.generateText(
+          'Reply with the single word OK.',
+          thinkingLevel: 'minimal',
+        );
         return 'Replied "$reply"';
       }),
     ];
