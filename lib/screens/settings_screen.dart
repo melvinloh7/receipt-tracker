@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../services/background.dart';
 import '../services/gemini.dart';
 import '../services/google_api.dart';
 import '../services/google_auth.dart';
@@ -81,12 +82,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved')));
   }
 
+  // Every setState is guarded: checks keep running if you leave this screen.
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _runOne(_Check c) async {
-    setState(() {
-      c.status = _Status.running;
-      c.detail = 'Running';
-      c.started = DateTime.now();
-    });
+    c.status = _Status.running;
+    c.detail = 'Running';
+    c.started = DateTime.now();
+    _refresh();
     try {
       final result = await c.run((note) {
         if (mounted) setState(() => c.detail = note);
@@ -127,16 +132,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return 'Replied "$reply"';
       }),
     ];
-    setState(() {
-      _busy = true;
-      _checks = checks;
-    });
+    _busy = true;
+    _checks = checks;
+    _refresh();
     // Redraw once a second so running checks show their elapsed time.
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
     // All checks run at the same time; each line updates as it finishes.
-    await Future.wait(checks.map(_runOne));
+    // Runs as background work, so you can switch apps; a notification tells
+    // you the result if you've left the app.
+    await Background.ensurePermission();
+    try {
+      await Background.run<List<_Check>>(
+        title: 'Connection test',
+        job: (report) async {
+          var finished = 0;
+          report('0 of ${checks.length} done', done: 0, total: checks.length);
+          await Future.wait(checks.map((c) async {
+            await _runOne(c);
+            finished++;
+            report('$finished of ${checks.length} done', done: finished, total: checks.length);
+          }));
+          return checks;
+        },
+        summary: (results) {
+          final failed = results.where((c) => c.status == _Status.failed).toList();
+          if (failed.isEmpty) {
+            return ('Connection test passed', 'All ${results.length} checks passed');
+          }
+          return (
+            'Connection test: ${failed.length} failed',
+            failed.map((c) => c.name).join(', '),
+          );
+        },
+      );
+    } catch (_) {
+      // Each check records its own error on screen.
+    }
     _ticker?.cancel();
     if (mounted) setState(() => _busy = false);
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'screens/home_screen.dart';
+import 'services/background.dart';
 import 'services/google_auth.dart';
 
 Future<void> main() async {
@@ -9,6 +10,11 @@ Future<void> main() async {
     await GoogleAuth.instance.init();
   } catch (_) {
     // Sign-in setup problems are shown in Settings; the app still opens.
+  }
+  try {
+    await Background.init();
+  } catch (_) {
+    // Notifications are optional; work still runs while the app is open.
   }
   runApp(const ReceiptTrackerApp());
 }

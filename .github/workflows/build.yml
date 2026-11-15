@@ -29,14 +29,7 @@ jobs:
         run: flutter create --org com.mayerloh --project-name receipt_tracker --platforms=android .
 
       - name: Adjust Android project
-        run: |
-          manifest=android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.INTERNET' "$manifest" || \
-            sed -i '0,/<application/s##<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$manifest"
-          sed -i 's/android:label="receipt_tracker"/android:label="Receipts"/' "$manifest"
-          gradle=$(ls android/app/build.gradle.kts android/app/build.gradle 2>/dev/null | head -1)
-          sed -i -E 's/minSdk(Version)? *=? *flutter\.minSdkVersion/minSdk = 26/' "$gradle"
-          grep -n "minSdk\|applicationId" "$gradle"
+        run: python3 scripts/patch_android.py
 
       - run: flutter pub get
 
