@@ -5,6 +5,7 @@ shows up as a clear build error instead of a broken app.
 """
 import pathlib
 import re
+import shutil
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "android"
@@ -74,6 +75,20 @@ def patch_gradle() -> None:
         text, n = re.subn(r"compileOptions\s*\{", "compileOptions {\n        " + flag, text, count=1)
         if n == 0:
             fail("no compileOptions block")
+    # Keep rules for the release shrinker (see scripts/proguard-rules.pro).
+    if "proguard-rules.pro" not in text:
+        line = (
+            'proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")'
+            if is_kts
+            else "proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'"
+        )
+        text, n = re.subn(r"(buildTypes\s*\{\s*release\s*\{)", r"\1\n            " + line, text, count=1)
+        if n == 0:
+            text, n = re.subn(r'(getByName\("release"\)\s*\{)', r"\1\n            " + line, text, count=1)
+        if n == 0:
+            fail("no release build type to add keep rules to")
+    shutil.copy(pathlib.Path(__file__).resolve().parent / "proguard-rules.pro", ROOT / "app/proguard-rules.pro")
+
     if "desugar_jdk_libs" not in text:
         dep = (
             'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
