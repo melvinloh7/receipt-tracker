@@ -103,14 +103,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToEnd();
   }
 
-  String _summary(ExpenseDraft d) {
-    final parts = <String>[
-      if (d.description.isNotEmpty) d.description,
-      if (d.amount != null) '${d.currency} ${d.amount!.toStringAsFixed(2)}',
-    ];
-    return parts.isEmpty ? 'Receipt read' : parts.join(' · ');
-  }
-
   Future<void> _send([String? preset]) async {
     if (_thinking) return;
     final text = (preset ?? _input.text).trim();
