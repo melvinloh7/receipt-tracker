@@ -29,9 +29,6 @@ class Receipts {
     return d;
   }
 
-  static String _iso(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
   /// Stores the compressed photo and thumbnail on the phone, records the
   /// transaction from [draft], and starts the Drive upload in the background.
   static Future<Expense> save({
