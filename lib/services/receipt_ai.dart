@@ -32,7 +32,7 @@ Reply with JSON only, exactly these keys:
 }
 
 Rules:
-- date: ${hasPhoto ? 'take it ONLY from the receipt. If the receipt shows no date, use null. Never use today\'s date or a date from the note for a photo.' : 'there is no photo, so take it from the note, resolving words like "yesterday" against today (${_iso(today)}). If the note gives no date, use today's date (${_iso(today)}) and include "date" in inferred.'}
+- date: ${hasPhoto ? 'take it ONLY from the receipt. If the receipt shows no date, use null. Never use today\'s date or a date from the note for a photo.' : 'there is no photo, so take it from the note, resolving words like "yesterday" against today (${_iso(today)}). If the note gives no date, use today\'s date (${_iso(today)}) and include "date" in inferred.'}
 - amount: the final amount actually paid, after discounts and including GST and service charge. If there are several totals and it is unclear which was paid, pick the most likely and explain in notes_for_user.
 - currency: from the receipt; Singapore receipts and "\$" in Singapore are SGD.
 - description: prefer Mel's words from the note, otherwise the merchant and what was bought. Keep it short.
