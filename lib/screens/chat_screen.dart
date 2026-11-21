@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../data/db.dart';
 import '../data/draft.dart';
 import '../services/background.dart';
 import '../services/google_api.dart';
 import '../services/image_pipeline.dart';
-import '../services/receipt_ai.dart';
 import '../services/receipts.dart';
 import '../services/settings_store.dart';
 import '../widgets/expense_editor.dart';
@@ -36,10 +36,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Object? _photoError;
   List<String> _categories = SettingsStore.defaultCategories;
   ExpenseDraft? _draft;
-  String _firstNote = '';
+
+  /// The saved receipt's id, once you've sent your first message.
+  String? _id;
   bool _thinking = false;
-  String? _thinkingNote;
   bool _saving = false;
+  bool _dirty = false;
   final _messages = <_Msg>[
     _Msg('Add a short note, e.g. "dinner at Ikea, shared with Des", or just tap Read receipt.'),
   ];
@@ -112,82 +114,79 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send([String? preset]) async {
     if (_thinking) return;
     final text = (preset ?? _input.text).trim();
-    final isCorrection = _draft != null;
+    final isCorrection = _id != null && _draft != null;
     if (isCorrection && text.isEmpty) return;
     _input.clear();
     if (text.isNotEmpty) _say(_Msg(text, fromUser: true));
-    if (!isCorrection) _firstNote = text;
 
-    setState(() {
-      _thinking = true;
-      _thinkingNote = null;
-    });
+    setState(() => _thinking = true);
     _scrollToEnd();
     await Background.ensurePermission();
 
     try {
-      final photo = await _photoFuture;
-      final previous = _draft?.copy();
-      final result = await Background.run<ExpenseDraft>(
-        title: 'Reading receipt',
-        job: (report) async {
-          report(isCorrection ? 'Applying your change' : 'Reading the receipt');
-          return ReceiptAi(_settings).read(
-            photo: photo.full,
-            note: _firstNote,
-            previous: isCorrection ? previous : null,
-            correction: isCorrection ? text : null,
-            onRetry: (attempt, of) {
-              report('Connection dropped, retry $attempt of $of');
-              if (mounted) setState(() => _thinkingNote = 'Connection dropped, retry $attempt of $of');
-            },
-          );
-        },
-        summary: (d) => ('Receipt read: ${_summary(d)}', 'Open the app to check and save'),
-        failure: (e) => ('Could not read the receipt', 'Open the app to fill it in yourself or try again'),
-      );
+      final ExpenseDraft? result;
+      if (_id == null) {
+        // First message: save the receipt now, so it shows in Logged as
+        // "Reading receipt…" even if you leave this screen.
+        final photo = await _photoFuture;
+        final id = await Receipts.start(photo: photo, note: text);
+        if (mounted) setState(() => _id = id);
+        result = await Receipts.read(id);
+      } else {
+        // A correction: keep any edits you made on the card first.
+        await _saveEdits();
+        result = await Receipts.read(_id!, correction: text);
+      }
       if (!mounted) return;
-      setState(() => _draft = result);
+      if (result == null) {
+        final e = await Db.instance.get(_id!);
+        _say(_Msg(
+          'I couldn\'t read it: ${e?.aiError ?? 'unknown error'}\n'
+          'It\'s saved in Logged as "AI couldn\'t read". Fill in the card yourself, or send a message to retry.',
+          isError: true,
+        ));
+        if (mounted && _draft == null) setState(() => _draft = ExpenseDraft());
+        return;
+      }
+      setState(() {
+        _draft = result;
+        _dirty = false;
+      });
       final missing = <String>[
         if (result.missingDate) 'date',
         if (result.missingCategory) 'category',
         if (result.missingAmount) 'amount',
       ];
       _say(_Msg([
-        isCorrection ? 'Updated.' : 'Here\'s what I found.',
+        isCorrection ? 'Updated and saved.' : 'Here\'s what I found. It\'s already saved.',
         if (result.inferred.isNotEmpty) 'Amber fields are my guesses; please check them.',
         if (missing.isNotEmpty) 'Missing: ${missing.join(', ')}.',
         if (result.inferred.isEmpty && missing.isEmpty) 'Everything came straight off the receipt.',
       ].join(' ')));
     } catch (e) {
-      _say(_Msg(
-        'I couldn\'t read it: $e\nYou can fill in the card yourself, or send your note again to retry.',
-        isError: true,
-      ));
-      // Give a blank card so it can still be saved by hand.
-      if (mounted && _draft == null) setState(() => _draft = ExpenseDraft());
+      _say(_Msg('Something went wrong: $e', isError: true));
     } finally {
-      if (mounted) {
-        setState(() {
-          _thinking = false;
-          _thinkingNote = null;
-        });
-      }
+      if (mounted) setState(() => _thinking = false);
     }
   }
 
-  Future<void> _save() async {
-    final photo = _photo;
-    if (photo == null) return;
-    final draft = _draft ?? ExpenseDraft();
+  /// Writes card edits to the saved receipt.
+  Future<void> _saveEdits() async {
+    final id = _id, draft = _draft;
+    if (id == null || draft == null || !_dirty) return;
+    final e = await Db.instance.get(id);
+    if (e == null) return;
+    await Receipts.saveEdits(e, draft);
+    _dirty = false;
+  }
+
+  Future<void> _done() async {
     setState(() => _saving = true);
     try {
-      await Receipts.save(photo: photo, draft: draft);
+      await _saveEdits();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(draft.needsReview
-            ? 'Saved as Needs review. Uploading to Drive in the background.'
-            : 'Saved. Uploading to Drive in the background.'),
+        content: Text(_draft?.needsReview ?? true ? 'Saved as Needs review.' : 'Saved.'),
       ));
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -248,7 +247,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final photo = _photo;
     final draft = _draft;
     final bottomInset = MediaQuery.of(context).viewPadding.bottom;
-    return Scaffold(
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _saveEdits(); // keep card edits if you just go back
+      },
+      child: Scaffold(
       appBar: AppBar(title: const Text('New receipt')),
       body: Column(
         children: [
@@ -294,7 +297,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Row(children: [
                       const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                       const SizedBox(width: 10),
-                      Expanded(child: Text(_thinkingNote ?? 'Reading the receipt… you can switch apps; I\'ll notify you.')),
+                      const Expanded(
+                        child: Text('Reading the receipt. It\'s saved in Logged; you can leave this screen.'),
+                      ),
                     ]),
                   ),
                 if (draft == null && !_thinking)
@@ -316,19 +321,19 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: ExpenseEditor(
                         draft: draft,
                         categories: _categories,
-                        onChanged: () => setState(() {}),
+                        onChanged: () => setState(() => _dirty = true),
                       ),
                     ),
                   ),
                   const SizedBox(height: 8),
                   FilledButton.icon(
-                    onPressed: photo == null || _saving || _thinking ? null : _save,
-                    icon: const Icon(Icons.save_outlined),
+                    onPressed: _saving || _thinking ? null : _done,
+                    icon: const Icon(Icons.check),
                     label: Text(_saving
                         ? 'Saving…'
                         : draft.needsReview
-                            ? 'Save (needs review)'
-                            : 'Save'),
+                            ? 'Done (needs review)'
+                            : 'Done'),
                   ),
                 ],
               ],
@@ -367,6 +372,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 }

@@ -30,6 +30,31 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   void initState() {
     super.initState();
     _load();
+    Db.instance.changes.addListener(_onDbChange);
+  }
+
+  @override
+  void dispose() {
+    Db.instance.changes.removeListener(_onDbChange);
+    super.dispose();
+  }
+
+  /// Picks up the AI's result if it finishes while you're on this screen
+  /// (but never discards edits you haven't saved).
+  Future<void> _onDbChange() async {
+    if (_dirty || _busy) return;
+    final fresh = await Db.instance.get(widget.expenseId);
+    final old = _e;
+    if (fresh == null || old == null || !mounted) return;
+    if (fresh.aiState != old.aiState || fresh.updatedAt != old.updatedAt) await _load();
+  }
+
+  Future<void> _retryAi() async {
+    setState(() => _busy = true);
+    await Receipts.read(widget.expenseId);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _load();
   }
 
   Future<void> _load() async {
@@ -139,6 +164,24 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               children: [
                 _photoView(theme),
                 const SizedBox(height: 8),
+                if (e.aiState == AiState.reading)
+                  const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                    title: Text('Reading receipt…'),
+                    subtitle: Text('The fields fill in when the AI is done.'),
+                  ),
+                if (e.aiState == AiState.failed)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.error_outline, color: theme.colorScheme.error),
+                    title: const Text('The AI couldn\'t read this receipt'),
+                    subtitle: Text(e.aiError ?? '', maxLines: 3, overflow: TextOverflow.ellipsis),
+                    trailing: TextButton(
+                      onPressed: _busy ? null : _retryAi,
+                      child: const Text('Retry'),
+                    ),
+                  ),
                 Row(
                   children: [
                     Chip(

@@ -93,7 +93,16 @@ class _Row extends StatelessWidget {
         ),
       ),
       title: Text(e.description.isEmpty ? 'Receipt' : e.description),
-      subtitle: Text.rich(
+      subtitle: e.aiState == AiState.reading
+          ? const Row(children: [
+              SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 8),
+              Text('Reading receipt…'),
+            ])
+          : e.aiState == AiState.failed
+              ? Text('AI couldn\'t read it · tap to retry',
+                  style: TextStyle(color: theme.colorScheme.error))
+              : Text.rich(
         TextSpan(children: [
           date == null
               ? TextSpan(text: 'Missing date', style: TextStyle(color: theme.colorScheme.error))
@@ -117,7 +126,7 @@ class _Row extends StatelessWidget {
                 e.amount == null ? '—' : '${e.currency == 'SGD' ? 'S\$' : '${e.currency} '}${(e.myShare ?? e.amount)!.toStringAsFixed(2)}',
                 style: theme.textTheme.titleSmall,
               ),
-              if (e.who.length > 1)
+              if (e.who.length > 1 && e.amount != null)
                 Text('of ${e.amount!.toStringAsFixed(2)}', style: theme.textTheme.bodySmall),
             ],
           ),

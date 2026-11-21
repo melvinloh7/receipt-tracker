@@ -20,7 +20,14 @@ class Db {
     final path = p.join(await getDatabasesPath(), 'receipts.db');
     final db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
+      onUpgrade: (db, from, to) async {
+        if (from < 2) {
+          await db.execute("ALTER TABLE expenses ADD COLUMN ai_state TEXT NOT NULL DEFAULT 'none'");
+          await db.execute('ALTER TABLE expenses ADD COLUMN ai_note TEXT');
+          await db.execute('ALTER TABLE expenses ADD COLUMN ai_error TEXT');
+        }
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE expenses (
@@ -46,6 +53,9 @@ class Db {
             upload_state TEXT NOT NULL DEFAULT 'none',
             upload_error TEXT,
             photo_bytes INTEGER,
+            ai_state TEXT NOT NULL DEFAULT 'none',
+            ai_note TEXT,
+            ai_error TEXT,
             notes TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -70,6 +80,23 @@ class Db {
     _changed();
   }
 
+  /// Updates only the given columns, so background work (uploads, AI) never
+  /// overwrites edits you made in the meantime.
+  Future<void> patch(String id, Map<String, Object?> values) async {
+    await (await _database).update(
+      'expenses',
+      {...values, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _changed();
+  }
+
+  Future<List<Expense>> withAiState(AiState state) async {
+    final rows = await (await _database).query('expenses', where: 'ai_state = ?', whereArgs: [state.name]);
+    return rows.map(Expense.fromMap).toList();
+  }
+
   Future<void> delete(String id) async {
     await (await _database).delete('expenses', where: 'id = ?', whereArgs: [id]);
     _changed();
@@ -92,7 +119,8 @@ class Db {
   Future<List<Expense>> pendingUploads() async {
     final rows = await (await _database).query(
       'expenses',
-      where: "upload_state IN ('pending', 'failed')",
+      // Wait for the AI before uploading, so the Drive name is final.
+      where: "upload_state IN ('pending', 'failed') AND ai_state != 'reading'",
       orderBy: 'created_at ASC',
     );
     return rows.map(Expense.fromMap).toList();

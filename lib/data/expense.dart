@@ -2,6 +2,9 @@ import 'dart:convert';
 
 enum UploadState { pending, uploaded, failed, none }
 
+/// Where the AI is with reading a receipt.
+enum AiState { none, reading, done, failed }
+
 /// One transaction. Fields mirror the ledger's Expenses tab.
 class Expense {
   Expense({
@@ -27,6 +30,9 @@ class Expense {
     this.uploadState = UploadState.none,
     this.uploadError,
     this.photoBytes,
+    this.aiState = AiState.none,
+    this.aiNote,
+    this.aiError,
     this.notes,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -61,6 +67,11 @@ class Expense {
   UploadState uploadState;
   String? uploadError;
   int? photoBytes;
+  AiState aiState;
+
+  /// The note you typed in the chat, kept so the AI can re-read later.
+  String? aiNote;
+  String? aiError;
   String? notes;
   DateTime createdAt;
   DateTime updatedAt;
@@ -92,6 +103,9 @@ class Expense {
         'upload_state': uploadState.name,
         'upload_error': uploadError,
         'photo_bytes': photoBytes,
+        'ai_state': aiState.name,
+        'ai_note': aiNote,
+        'ai_error': aiError,
         'notes': notes,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
@@ -132,6 +146,12 @@ class Expense {
         ),
         uploadError: m['upload_error'] as String?,
         photoBytes: m['photo_bytes'] as int?,
+        aiState: AiState.values.firstWhere(
+          (s) => s.name == m['ai_state'],
+          orElse: () => AiState.none,
+        ),
+        aiNote: m['ai_note'] as String?,
+        aiError: m['ai_error'] as String?,
         notes: m['notes'] as String?,
         createdAt: DateTime.tryParse((m['created_at'] as String?) ?? '') ?? DateTime.now(),
         updatedAt: DateTime.tryParse((m['updated_at'] as String?) ?? '') ?? DateTime.now(),

@@ -18,6 +18,10 @@ class Background {
   static bool _ready = false;
 
   static const _progressId = 1001;
+
+  /// Jobs running now. The service starts with the first and stops with the
+  /// last, so overlapping jobs (an upload and an AI read) keep each other alive.
+  static int _active = 0;
   static int _doneId = 2000;
 
   static const _progressChannel = AndroidNotificationDetails(
@@ -92,6 +96,7 @@ class Background {
   }) async {
     await init();
     var serviceStarted = false;
+    _active++;
     try {
       await _android?.startForegroundService(
         id: _progressId,
@@ -130,7 +135,9 @@ class Background {
   }
 
   static Future<void> _finish(bool serviceStarted, (String, String) message) async {
-    if (serviceStarted) {
+    _active--;
+    if (serviceStarted && _active <= 0) {
+      _active = 0;
       try {
         await _android?.stopForegroundService();
       } catch (_) {}

@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadCount();
     // Finish any uploads interrupted last time (e.g. no signal).
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      Receipts.resumeReading(); // AI reads cut off last time
       Receipts.uploadPending();
       _refreshCategories();
     });
