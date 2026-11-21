@@ -96,8 +96,21 @@ class GeminiClient {
           lastError = e;
           continue;
         }
+        if (e.status == 429) {
+          // Free-tier quota. Wait only if Google asks for a short pause;
+          // otherwise stop, rather than spend more of the quota.
+          final limit = GeminiRateLimit.fromBody(e.body);
+          final wait = limit.retryAfter;
+          if (!limit.daily && wait != null && wait <= const Duration(seconds: 60) && attempt < _attempts) {
+            onRetry?.call(attempt + 1, _attempts);
+            client.close();
+            await Future<void>.delayed(wait + const Duration(seconds: 1));
+            continue;
+          }
+          throw limit;
+        }
         // Otherwise retry only when Google says it is busy.
-        if (e.status != 503 && e.status != 429) rethrow;
+        if (e.status != 503) rethrow;
         lastError = e;
       } on http.ClientException catch (e) {
         lastError = e;
@@ -147,6 +160,32 @@ class GeminiClient {
     if (key.isEmpty) throw StateError('No Gemini API key. Add it in Settings.');
     return key;
   }
+}
+
+/// Google's free tier said no: too many requests per minute, or the daily
+/// allowance is used up.
+class GeminiRateLimit implements Exception {
+  GeminiRateLimit({required this.daily, this.retryAfter, required this.detail});
+
+  final bool daily;
+  final Duration? retryAfter;
+  final String detail;
+
+  factory GeminiRateLimit.fromBody(String body) {
+    final m = RegExp(r'"retryDelay"\s*:\s*"([0-9.]+)s"').firstMatch(body);
+    final secs = m == null ? null : double.tryParse(m.group(1)!);
+    return GeminiRateLimit(
+      daily: RegExp('PerDay', caseSensitive: false).hasMatch(body),
+      retryAfter: secs == null ? null : Duration(milliseconds: (secs * 1000).round()),
+      detail: body,
+    );
+  }
+
+  @override
+  String toString() => daily
+      ? 'Gemini free limit reached: daily allowance used up. It resets daily (around 3pm-4pm Singapore time).'
+      : 'Gemini free limit reached: too many requests in a short time'
+          '${retryAfter == null ? '' : '. Try again in about ${retryAfter!.inSeconds + 1}s'}.';
 }
 
 class _HttpError implements Exception {

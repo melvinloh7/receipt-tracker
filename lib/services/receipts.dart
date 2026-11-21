@@ -10,6 +10,7 @@ import '../data/draft.dart';
 import '../data/expense.dart';
 import 'background.dart';
 import 'drive_store.dart';
+import 'gemini.dart';
 import 'image_pipeline.dart';
 import 'receipt_ai.dart';
 import 'settings_store.dart';
@@ -72,6 +73,19 @@ class Receipts {
   /// With [correction], applies your chat reply to the current fields.
   /// Returns the result, or null if the AI couldn't read it (the reason is
   /// saved on the receipt).
+  /// Until when Gemini told us to back off (free-tier limit).
+  static DateTime? _limitedUntil;
+
+  /// AI reads run one at a time, so a burst of receipts doesn't hit the
+  /// free tier's per-minute limit.
+  static Future<void> _queue = Future.value();
+
+  static Future<T> _oneAtATime<T>(Future<T> Function() job) {
+    final run = _queue.then((_) => job());
+    _queue = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
   static Future<ExpenseDraft?> read(String id, {String? correction}) {
     final running = _reading[id];
     if (running != null && correction == null) return running;
@@ -88,7 +102,7 @@ class Receipts {
       final photo = await _photoBytes(e);
       final settings = SettingsStore();
       final previous = correction == null ? null : ExpenseDraft.fromExpense(e);
-      final draft = await Background.run<ExpenseDraft>(
+      final draft = await _oneAtATime(() => Background.run<ExpenseDraft>(
         title: 'Reading receipt',
         job: (report) {
           report(correction == null ? 'Reading the receipt' : 'Applying your change');
@@ -105,7 +119,7 @@ class Receipts {
           d.needsReview ? 'Needs review. Tap Logged to check it.' : 'Saved.',
         ),
         failure: (err) => ('Could not read the receipt', 'Open it in Logged to retry or fill it in'),
-      );
+      ));
       // Re-read the row: an upload may have finished in the meantime.
       final fresh = await Db.instance.get(id);
       if (fresh == null) return draft; // deleted meanwhile
@@ -118,6 +132,11 @@ class Receipts {
       await _syncDriveName(fresh, oldBase);
       return draft;
     } catch (err) {
+      if (err is GeminiRateLimit) {
+        _limitedUntil = DateTime.now().add(
+          err.retryAfter ?? (err.daily ? const Duration(hours: 1) : const Duration(minutes: 2)),
+        );
+      }
       await Db.instance.patch(id, {'ai_state': AiState.failed.name, 'ai_error': err.toString()});
       return null;
     } finally {
@@ -132,8 +151,13 @@ class Receipts {
       r'ClientException|SocketException|TimeoutException|Could not reach|Failed host lookup|Connection',
       caseSensitive: false,
     );
+    final limited = _limitedUntil;
+    if (limited != null && DateTime.now().isBefore(limited)) return;
+    // Never auto-retry quota errors: that only uses up more of the quota.
+    final quota = RegExp(r'429|quota|limit reached|RESOURCE_EXHAUSTED', caseSensitive: false);
     for (final e in await Db.instance.withAiState(AiState.failed)) {
-      if (!isReading(e.id) && network.hasMatch(e.aiError ?? '')) read(e.id);
+      final err = e.aiError ?? '';
+      if (!isReading(e.id) && network.hasMatch(err) && !quota.hasMatch(err)) read(e.id);
     }
   }
 
