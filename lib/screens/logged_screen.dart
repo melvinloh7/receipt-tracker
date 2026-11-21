@@ -98,10 +98,33 @@ class _Row extends StatelessWidget {
           date == null
               ? TextSpan(text: 'Missing date', style: TextStyle(color: theme.colorScheme.error))
               : TextSpan(text: MaterialLocalizations.of(context).formatMediumDate(date)),
-          TextSpan(text: ' · ${e.status}'),
+          const TextSpan(text: ' · '),
+          e.category == null
+              ? TextSpan(text: 'Missing category', style: TextStyle(color: theme.colorScheme.error))
+              : TextSpan(text: e.category),
+          if (e.status == 'Needs review')
+            const TextSpan(text: ' · Needs review', style: TextStyle(color: Color(0xFFE0A100))),
         ]),
       ),
-      trailing: _uploadIcon(context, e),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                e.amount == null ? '—' : '${e.currency == 'SGD' ? 'S\$' : '${e.currency} '}${(e.myShare ?? e.amount)!.toStringAsFixed(2)}',
+                style: theme.textTheme.titleSmall,
+              ),
+              if (e.who.length > 1)
+                Text('of ${e.amount!.toStringAsFixed(2)}', style: theme.textTheme.bodySmall),
+            ],
+          ),
+          const SizedBox(width: 8),
+          _uploadIcon(context, e) ?? const SizedBox(width: 24),
+        ],
+      ),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => ReceiptScreen(expenseId: e.id)),
       ),

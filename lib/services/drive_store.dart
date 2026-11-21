@@ -118,6 +118,27 @@ class DriveStore {
     return r.bodyBytes;
   }
 
+  /// Renames a file and moves it into [folderId] (from wherever it is now).
+  Future<void> moveRename(String fileId, String name, String folderId) async {
+    final info = await http.get(
+      Uri.parse('https://www.googleapis.com/drive/v3/files/$fileId?fields=parents'),
+      headers: await _headers(),
+    );
+    if (info.statusCode != 200) _fail('Finding the photo in Drive', info);
+    final parents = ((jsonDecode(info.body)['parents'] as List?) ?? const []).cast<String>();
+    final query = <String, String>{'fields': 'id'};
+    if (!parents.contains(folderId)) {
+      query['addParents'] = folderId;
+      if (parents.isNotEmpty) query['removeParents'] = parents.join(',');
+    }
+    final r = await http.patch(
+      Uri.https('www.googleapis.com', '/drive/v3/files/$fileId', query),
+      headers: await _headers(contentType: 'application/json; charset=utf-8'),
+      body: jsonEncode({'name': name}),
+    );
+    if (r.statusCode != 200) _fail('Renaming the photo in Drive', r);
+  }
+
   /// Moves a file to the Drive bin (recoverable for 30 days).
   Future<void> trash(String fileId) async {
     final r = await http.patch(

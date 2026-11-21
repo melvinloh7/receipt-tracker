@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../data/db.dart';
+import '../data/draft.dart';
 import '../data/expense.dart';
 import 'background.dart';
 import 'drive_store.dart';
@@ -32,11 +33,10 @@ class Receipts {
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   /// Stores the compressed photo and thumbnail on the phone, records the
-  /// transaction, and starts the Drive upload in the background.
+  /// transaction from [draft], and starts the Drive upload in the background.
   static Future<Expense> save({
     required CompressedReceipt photo,
-    required String description,
-    DateTime? date,
+    required ExpenseDraft draft,
   }) async {
     final id = _newId();
     final full = File(p.join((await _dir('receipts')).path, '$id.jpg'));
@@ -46,18 +46,68 @@ class Receipts {
 
     final e = Expense(
       id: id,
-      date: date == null ? null : _iso(date),
-      description: description.trim(),
       localPath: full.path,
       thumbPath: thumb.path,
       photoBytes: photo.full.length,
       uploadState: UploadState.pending,
-      // Phase 1 has no AI yet: amount and category are filled in later.
-      inferred: const [],
     );
+    draft.applyTo(e);
     await Db.instance.insert(e);
     uploadPending(); // not awaited: runs in the background
     return e;
+  }
+
+  /// Saves edits from the review screen. If the date or description changed
+  /// and the photo is in Drive, renames it and moves it to the right folder.
+  static Future<void> saveEdits(Expense e, ExpenseDraft draft, {bool markReviewed = false}) async {
+    final oldBase = receiptBaseName(e.dateValue, e.description);
+    final oldFolderDate = e.dateValue;
+    draft.applyTo(e);
+    if (markReviewed) {
+      e.status = 'Reviewed';
+      e.inferred = const [];
+    }
+    final newBase = receiptBaseName(e.dateValue, e.description);
+    final fileId = e.driveFileId;
+    if (fileId != null && newBase != oldBase) {
+      final drive = DriveStore.instance;
+      final folder = await drive.folderFor(e.dateValue);
+      final name = await drive.uniqueName(folder, newBase);
+      await drive.moveRename(fileId, name, folder);
+      e.fileName = name;
+    } else if (fileId != null && _sameMonth(oldFolderDate, e.dateValue) == false) {
+      final folder = await DriveStore.instance.folderFor(e.dateValue);
+      await DriveStore.instance.moveRename(fileId, e.fileName ?? '$newBase.jpg', folder);
+    }
+    await Db.instance.update(e);
+  }
+
+  static bool _sameMonth(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return a == b;
+    return a.year == b.year && a.month == b.month;
+  }
+
+  /// Removes the photo (Drive copy to the bin, thumbnail deleted) but keeps
+  /// the transaction, which then shows a generic receipt icon.
+  static Future<void> deletePhoto(Expense e) async {
+    final id = e.driveFileId;
+    if (id != null) await DriveStore.instance.trash(id);
+    for (final path in [e.localPath, e.thumbPath]) {
+      if (path != null) {
+        final f = File(path);
+        if (f.existsSync()) f.deleteSync();
+      }
+    }
+    e
+      ..driveFileId = null
+      ..driveLink = null
+      ..fileName = null
+      ..localPath = null
+      ..thumbPath = null
+      ..photoBytes = null
+      ..uploadState = UploadState.none
+      ..uploadError = null;
+    await Db.instance.update(e);
   }
 
   /// Uploads everything still waiting (new receipts, or ones that failed).

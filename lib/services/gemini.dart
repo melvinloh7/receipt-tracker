@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 
 import 'settings_store.dart';
 
-/// Minimal Gemini client. Receipt parsing is added in Phase 2.
+/// Gemini client: text and image requests, optionally JSON-only replies.
 ///
 /// Replies are streamed (Server-Sent Events) so bytes keep flowing while the
 /// model works; a silent long-held connection was being dropped on Mel's phone.
@@ -37,20 +37,45 @@ class GeminiClient {
     String prompt, {
     String thinkingLevel = 'low',
     void Function(int attempt, int of)? onRetry,
+  }) =>
+      generate(
+        parts: [
+          {'text': prompt},
+        ],
+        thinkingLevel: thinkingLevel,
+        onRetry: onRetry,
+      );
+
+  /// A JPEG image as a request part.
+  static Map<String, Object> imagePart(List<int> jpeg) => {
+        'inline_data': {'mime_type': 'image/jpeg', 'data': base64Encode(jpeg)},
+      };
+
+  /// General call: [parts] (text and images), an optional [system]
+  /// instruction, and [json] to ask for a JSON-only reply.
+  Future<String> generate({
+    required List<Map<String, Object>> parts,
+    String? system,
+    bool json = false,
+    String thinkingLevel = 'low',
+    void Function(int attempt, int of)? onRetry,
   }) async {
     final key = await _requireKey();
     final model = await _settings.geminiModel();
     final uri = Uri.parse('$_base/$model:streamGenerateContent?alt=sse');
     final body = jsonEncode({
-      'contents': [
-        {
+      if (system != null)
+        'systemInstruction': {
           'parts': [
-            {'text': prompt},
+            {'text': system},
           ],
         },
+      'contents': [
+        {'role': 'user', 'parts': parts},
       ],
       'generationConfig': {
         'thinkingConfig': {'thinkingLevel': thinkingLevel},
+        if (json) 'responseMimeType': 'application/json',
       },
     });
 

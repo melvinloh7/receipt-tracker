@@ -38,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _longReceiptCtrl = TextEditingController();
   final _qualityCtrl = TextEditingController();
   bool _greyscale = true;
+  final _peopleCtrl = TextEditingController();
   bool _busy = false;
   String? _authError;
   List<_Check> _checks = const [];
@@ -57,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _longReceiptCtrl.text = '${c.longReceiptSide}';
     _qualityCtrl.text = '${c.quality}';
     _greyscale = c.greyscale;
+    _peopleCtrl.text = (await _settings.people()).where((p) => p != 'Self').join(', ');
     if (mounted) setState(() {});
   }
 
@@ -68,6 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _longSideCtrl.dispose();
     _longReceiptCtrl.dispose();
     _qualityCtrl.dispose();
+    _peopleCtrl.dispose();
     super.dispose();
   }
 
@@ -91,6 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     await _settings.save(geminiKey: _keyCtrl.text, geminiModel: _modelCtrl.text);
+    await _settings.savePeople(_peopleCtrl.text.split(','));
     const d = CompressionSettings();
     await _settings.saveCompression(CompressionSettings(
       longSide: int.tryParse(_longSideCtrl.text) ?? d.longSide,
@@ -303,6 +307,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          const Divider(height: 40),
+          Text('People', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text('Names you share bills with, so the AI spells them the same way every time.',
+              style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _peopleCtrl,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'People (comma-separated)',
+              hintText: 'Des, Wife',
+              border: OutlineInputBorder(),
+            ),
+          ),
           const Divider(height: 40),
           Text('Receipt compression', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),

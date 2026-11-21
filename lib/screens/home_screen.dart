@@ -5,9 +5,11 @@ import 'package:image_picker/image_picker.dart';
 
 import '../data/db.dart';
 import '../services/background.dart';
+import '../services/google_api.dart';
 import '../services/google_auth.dart';
 import '../services/receipts.dart';
-import 'capture_screen.dart';
+import '../services/settings_store.dart';
+import 'chat_screen.dart';
 import 'logged_screen.dart';
 import 'settings_screen.dart';
 
@@ -27,13 +29,24 @@ class _HomeScreenState extends State<HomeScreen> {
     Db.instance.changes.addListener(_loadCount);
     _loadCount();
     // Finish any uploads interrupted last time (e.g. no signal).
-    WidgetsBinding.instance.addPostFrameCallback((_) => Receipts.uploadPending());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Receipts.uploadPending();
+      _refreshCategories();
+    });
   }
 
   @override
   void dispose() {
     Db.instance.changes.removeListener(_loadCount);
     super.dispose();
+  }
+
+  /// Keeps the app's copy of your categories in step with the ledger.
+  Future<void> _refreshCategories() async {
+    try {
+      final cats = await GoogleApi().readCategories();
+      await SettingsStore().saveCategories(cats);
+    } catch (_) {}
   }
 
   Future<void> _loadCount() async {
@@ -57,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final List<String> images = result.images ?? const [];
       if (images.isEmpty || !mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => CaptureScreen(scanPath: images.first)),
+        MaterialPageRoute(builder: (_) => ChatScreen(scanPath: images.first)),
       );
     } catch (e) {
       // Closing the scanner without a scan also lands here; only show real errors.
@@ -78,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (picked == null || !mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => CaptureScreen(scanPath: picked.path)),
+        MaterialPageRoute(builder: (_) => ChatScreen(scanPath: picked.path)),
       );
     } catch (e) {
       if (mounted) {
