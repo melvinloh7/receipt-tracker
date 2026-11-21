@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_document_scanner/google_mlkit_document_scanner.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../data/db.dart';
 import '../services/background.dart';
@@ -47,7 +48,8 @@ class _HomeScreenState extends State<HomeScreen> {
         documentFormats: const {DocumentFormat.jpeg},
         mode: ScannerMode.full,
         pageLimit: 1,
-        isGalleryImport: true,
+        // Paper receipts only; screenshots use From gallery (no edge detection).
+        isGalleryImport: false,
       ),
     );
     try {
@@ -65,6 +67,23 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } finally {
       scanner.close();
+    }
+  }
+
+  /// Screenshots and e-receipts are already flat, so they skip the scanner's
+  /// edge detection and go straight to compression.
+  Future<void> _fromGallery() async {
+    await Background.ensurePermission();
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (picked == null || !mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => CaptureScreen(scanPath: picked.path)),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gallery: $e')));
+      }
     }
   }
 
@@ -127,6 +146,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: Icons.photo_camera_outlined,
                 label: 'Snap receipt',
                 onTap: _snap,
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _fromGallery,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('From gallery (screenshots, e-receipts)'),
               ),
               const SizedBox(height: 16),
               _BigButton(
