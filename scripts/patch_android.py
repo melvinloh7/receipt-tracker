@@ -89,6 +89,18 @@ def patch_gradle() -> None:
             fail("no release build type to add keep rules to")
     shutil.copy(pathlib.Path(__file__).resolve().parent / "proguard-rules.pro", ROOT / "app/proguard-rules.pro")
 
+    # Android lint crashes on some plugins' Java docs (an AGP lint bug), which
+    # fails release builds. The Dart analyzer already checks our code.
+    if "checkReleaseBuilds" not in text:
+        lint = (
+            "lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }"
+            if is_kts
+            else "lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }"
+        )
+        text, n = re.subn(r"^android\s*\{", "android {\n    " + lint, text, count=1, flags=re.M)
+        if n == 0:
+            fail("no android { block for lint options")
+
     if "desugar_jdk_libs" not in text:
         dep = (
             'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
