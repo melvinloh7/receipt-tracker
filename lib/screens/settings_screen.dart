@@ -151,7 +151,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _Check('AI: Gemini reply', (note) async {
         final reply = await gemini.generateText(
           'Reply with the single word OK.',
-          thinkingLevel: 'minimal',
+          thinkingLevel: 'low',
           onRetry: (attempt, of) => note('Connection dropped, retry $attempt of $of'),
         );
         return 'Replied "$reply"';
