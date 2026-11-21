@@ -51,7 +51,8 @@ class LedgerSync {
   static Never _fail(String what, http.Response r) =>
       throw Exception('$what failed (${r.statusCode}): ${r.body}');
 
-  static String _money(double? v) => v == null ? '' : v.toStringAsFixed(2);
+  /// Numbers go in as numbers (not text) so the ledger can SUM them.
+  static Object _money(double? v) => v == null ? '' : double.parse(v.toStringAsFixed(2));
 
   static List<Object> _row(Expense e) {
     final split = ExpenseDraft.fromExpense(e).customSplit;
