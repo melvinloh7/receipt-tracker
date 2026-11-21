@@ -8,6 +8,7 @@ import '../services/gemini.dart';
 import '../services/google_api.dart';
 import '../services/google_auth.dart';
 import '../services/image_pipeline.dart';
+import '../services/ledger_sync.dart';
 import '../services/settings_store.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -198,6 +199,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  Future<void> _syncNow() async {
+    await LedgerSync.run();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Ledger is up to date.')),
+    );
+  }
+
+  Future<void> _restore() async {
+    setState(() => _busy = true);
+    try {
+      final n = await LedgerSync.restore();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(n == 0
+            ? 'Nothing to restore: everything in the ledger is already on this phone.'
+            : 'Restored $n transaction${n == 1 ? '' : 's'} from the ledger.'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not restore: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Widget _numberField(TextEditingController ctrl, String label) => TextField(
         controller: ctrl,
         keyboardType: TextInputType.number,
@@ -307,6 +334,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          const Divider(height: 40),
+          Text('Ledger', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            'Every transaction is copied to the Expenses tab of your Life Dashboard ledger '
+            'a few seconds after it changes. That copy is your backup.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _syncNow,
+                icon: const Icon(Icons.sync),
+                label: const Text('Sync now'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _restore,
+                icon: const Icon(Icons.restore),
+                label: const Text('Restore'),
+              ),
+            ),
+          ]),
           const Divider(height: 40),
           Text('People', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),

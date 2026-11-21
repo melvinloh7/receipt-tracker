@@ -20,12 +20,16 @@ class Db {
     final path = p.join(await getDatabasesPath(), 'receipts.db');
     final db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onUpgrade: (db, from, to) async {
         if (from < 2) {
           await db.execute("ALTER TABLE expenses ADD COLUMN ai_state TEXT NOT NULL DEFAULT 'none'");
           await db.execute('ALTER TABLE expenses ADD COLUMN ai_note TEXT');
           await db.execute('ALTER TABLE expenses ADD COLUMN ai_error TEXT');
+        }
+        if (from < 3) {
+          await db.execute("ALTER TABLE expenses ADD COLUMN sync_state TEXT NOT NULL DEFAULT 'pending'");
+          await db.execute('CREATE TABLE IF NOT EXISTS deletions (id TEXT PRIMARY KEY)');
         }
       },
       onCreate: (db, version) async {
@@ -58,9 +62,12 @@ class Db {
             ai_error TEXT,
             notes TEXT,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            sync_state TEXT NOT NULL DEFAULT 'pending'
           )
         ''');
+        // Receipts deleted on the phone, still to be removed from the ledger.
+        await db.execute('CREATE TABLE deletions (id TEXT PRIMARY KEY)');
       },
     );
     _db = db;
@@ -69,14 +76,32 @@ class Db {
 
   void _changed() => changes.value++;
 
+  // Every change marks the receipt for syncing to the ledger.
+  static const _syncPending = {'sync_state': 'pending'};
+
   Future<void> insert(Expense e) async {
-    await (await _database).insert('expenses', e.toMap());
+    await (await _database).insert('expenses', {...e.toMap(), ..._syncPending});
+    _changed();
+  }
+
+  /// Adds a receipt restored from the ledger (already in sync).
+  Future<void> insertRestored(Expense e) async {
+    await (await _database).insert(
+      'expenses',
+      {...e.toMap(), 'sync_state': 'synced'},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
     _changed();
   }
 
   Future<void> update(Expense e) async {
     e.updatedAt = DateTime.now();
-    await (await _database).update('expenses', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+    await (await _database).update(
+      'expenses',
+      {...e.toMap(), ..._syncPending},
+      where: 'id = ?',
+      whereArgs: [e.id],
+    );
     _changed();
   }
 
@@ -85,7 +110,7 @@ class Db {
   Future<void> patch(String id, Map<String, Object?> values) async {
     await (await _database).update(
       'expenses',
-      {...values, 'updated_at': DateTime.now().toIso8601String()},
+      {...values, ..._syncPending, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -98,8 +123,48 @@ class Db {
   }
 
   Future<void> delete(String id) async {
-    await (await _database).delete('expenses', where: 'id = ?', whereArgs: [id]);
+    final db = await _database;
+    await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+    await db.insert('deletions', {'id': id}, conflictAlgorithm: ConflictAlgorithm.ignore);
     _changed();
+  }
+
+  // ---- Ledger sync ----
+
+  /// Receipts changed since they were last copied to the ledger
+  /// (skipping ones the AI is still reading).
+  Future<List<Expense>> pendingSync() async {
+    final rows = await (await _database).query(
+      'expenses',
+      where: "sync_state = 'pending' AND ai_state != 'reading'",
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(Expense.fromMap).toList();
+  }
+
+  /// Marks a receipt as copied, unless it changed again since [readAt].
+  Future<void> markSynced(String id, DateTime readAt) async {
+    await (await _database).rawUpdate(
+      "UPDATE expenses SET sync_state = 'synced' WHERE id = ? AND updated_at = ?",
+      [id, readAt.toIso8601String()],
+    );
+  }
+
+  Future<List<String>> pendingDeletions() async {
+    final rows = await (await _database).query('deletions');
+    return rows.map((r) => r['id'] as String).toList();
+  }
+
+  Future<void> clearDeletions(Iterable<String> ids) async {
+    final db = await _database;
+    for (final id in ids) {
+      await db.delete('deletions', where: 'id = ?', whereArgs: [id]);
+    }
+  }
+
+  Future<Set<String>> allIds() async {
+    final rows = await (await _database).query('expenses', columns: ['id']);
+    return {for (final r in rows) r['id'] as String};
   }
 
   Future<Expense?> get(String id) async {

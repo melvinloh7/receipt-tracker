@@ -9,6 +9,7 @@ import '../services/google_api.dart';
 import '../services/image_pipeline.dart';
 import '../services/receipts.dart';
 import '../services/settings_store.dart';
+import '../widgets/duplicate_banner.dart';
 import '../widgets/expense_editor.dart';
 
 class _Msg {
@@ -18,10 +19,11 @@ class _Msg {
   final bool isError;
 }
 
-/// After a photo: a short chat with the AI, which fills in the expense card.
+/// A short chat with the AI, which fills in the expense card: after a photo,
+/// or with no photo at all (Quick add, when [scanPath] is null).
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.scanPath});
-  final String scanPath;
+  final String? scanPath;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -31,10 +33,12 @@ class _ChatScreenState extends State<ChatScreen> {
   final _settings = SettingsStore();
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  late final Future<CompressedReceipt> _photoFuture;
+  late final Future<CompressedReceipt?> _photoFuture;
+  bool get _quickAdd => widget.scanPath == null;
   CompressedReceipt? _photo;
   Object? _photoError;
   List<String> _categories = SettingsStore.defaultCategories;
+  List<String> _people = const ['Self'];
   ExpenseDraft? _draft;
 
   /// The saved receipt's id, once you've sent your first message.
@@ -42,8 +46,10 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _thinking = false;
   bool _saving = false;
   bool _dirty = false;
-  final _messages = <_Msg>[
-    _Msg('Add a short note, e.g. "dinner at Ikea, shared with Des", or just tap Read receipt.'),
+  late final _messages = <_Msg>[
+    _Msg(_quickAdd
+        ? 'Describe the expense, e.g. "Grab to airport 32.50 yesterday" or "lunch 18 with Des".'
+        : 'Add a short note, e.g. "dinner at Ikea, shared with Des", or just tap Read receipt.'),
   ];
 
   @override
@@ -61,9 +67,11 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  Future<CompressedReceipt> _compress() async {
+  Future<CompressedReceipt?> _compress() async {
+    final path = widget.scanPath;
+    if (path == null) return null;
     try {
-      final photo = await compressReceipt(widget.scanPath, await _settings.compression());
+      final photo = await compressReceipt(path, await _settings.compression());
       if (mounted) setState(() => _photo = photo);
       return photo;
     } catch (e) {
@@ -74,7 +82,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadCategories() async {
     final cached = await _settings.categories();
-    if (mounted) setState(() => _categories = cached);
+    final people = await _settings.people();
+    if (mounted) {
+      setState(() {
+        _categories = cached;
+        _people = people;
+      });
+    }
     // Refresh from the ledger quietly; keep the cached list if offline.
     try {
       final fresh = await GoogleApi().readCategories();
@@ -107,7 +121,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_thinking) return;
     final text = (preset ?? _input.text).trim();
     final isCorrection = _id != null && _draft != null;
-    if (isCorrection && text.isEmpty) return;
+    if ((isCorrection || _quickAdd) && text.isEmpty) return;
     _input.clear();
     if (text.isNotEmpty) _say(_Msg(text, fromUser: true));
 
@@ -244,7 +258,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (didPop) _saveEdits(); // keep card edits if you just go back
       },
       child: Scaffold(
-      appBar: AppBar(title: const Text('New receipt')),
+      appBar: AppBar(title: Text(_quickAdd ? 'Quick add' : 'New receipt')),
       body: Column(
         children: [
           Expanded(
@@ -253,6 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               children: [
                 // Receipt thumbnail; tap to see it full screen.
+                if (!_quickAdd)
                 Center(
                   child: GestureDetector(
                     onTap: _showPhoto,
@@ -294,7 +309,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ]),
                   ),
-                if (draft == null && !_thinking)
+                if (draft == null && !_thinking && !_quickAdd)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Wrap(spacing: 8, children: [
@@ -307,12 +322,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 if (draft != null) ...[
                   const SizedBox(height: 12),
+                  if (_id != null && !_thinking)
+                    DuplicateBanner(key: ValueKey(draft), expenseId: _id!),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: ExpenseEditor(
                         draft: draft,
                         categories: _categories,
+                        people: _people,
                         onChanged: () => setState(() => _dirty = true),
                       ),
                     ),
@@ -346,7 +364,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       minLines: 1,
                       maxLines: 3,
                       decoration: InputDecoration(
-                        hintText: draft == null ? 'e.g. dinner at Ikea, shared with Des' : 'Correct something, e.g. "category is Family"',
+                        hintText: draft != null
+                            ? 'Correct something, e.g. "category is Family"'
+                            : _quickAdd
+                                ? 'e.g. Grab to airport 32.50 yesterday'
+                                : 'e.g. dinner at Ikea, shared with Des',
                         border: const OutlineInputBorder(),
                         isDense: true,
                       ),

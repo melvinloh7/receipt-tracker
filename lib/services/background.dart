@@ -93,6 +93,7 @@ class Background {
     required Future<T> Function(ProgressReporter report) job,
     required (String, String) Function(T result) summary,
     (String, String) Function(Object error)? failure,
+    bool notifyWhenDone = true,
   }) async {
     await init();
     var serviceStarted = false;
@@ -125,16 +126,16 @@ class Background {
 
     try {
       final result = await job(report);
-      await _finish(serviceStarted, summary(result));
+      await _finish(serviceStarted, notifyWhenDone ? summary(result) : null);
       return result;
     } catch (e) {
       final (t, b) = failure?.call(e) ?? ('$title failed', e.toString());
-      await _finish(serviceStarted, (t, b));
+      await _finish(serviceStarted, notifyWhenDone ? (t, b) : null);
       rethrow;
     }
   }
 
-  static Future<void> _finish(bool serviceStarted, (String, String) message) async {
+  static Future<void> _finish(bool serviceStarted, (String, String)? message) async {
     _active--;
     if (serviceStarted && _active <= 0) {
       _active = 0;
@@ -143,7 +144,7 @@ class Background {
       } catch (_) {}
     }
     // Only alert when you're elsewhere; on screen, the app shows the result.
-    if (_appOnScreen) return;
+    if (_appOnScreen || message == null) return;
     final (title, body) = message;
     await _plugin.show(
       id: _doneId++,

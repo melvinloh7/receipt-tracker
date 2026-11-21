@@ -7,6 +7,7 @@ import '../data/db.dart';
 import '../services/background.dart';
 import '../services/google_api.dart';
 import '../services/google_auth.dart';
+import '../services/ledger_sync.dart';
 import '../services/receipts.dart';
 import '../services/settings_store.dart';
 import 'chat_screen.dart';
@@ -20,25 +21,41 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _needsReview = 0;
 
   @override
   void initState() {
     super.initState();
     Db.instance.changes.addListener(_loadCount);
+    WidgetsBinding.instance.addObserver(this);
     _loadCount();
     // Finish any uploads interrupted last time (e.g. no signal).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Receipts.resumeReading(); // AI reads cut off last time
-      Receipts.uploadPending();
+      _catchUp();
       _refreshCategories();
     });
+  }
+
+  /// Finishes anything left over: AI reads cut off or failed for lack of
+  /// signal, uploads, and the ledger copy. Runs on start and whenever you
+  /// come back to the app.
+  void _catchUp() {
+    Receipts.resumeReading();
+    Receipts.retryFailedReads();
+    Receipts.uploadPending();
+    LedgerSync.run();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _catchUp();
   }
 
   @override
   void dispose() {
     Db.instance.changes.removeListener(_loadCount);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -101,12 +118,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _comingSoon(String what, String phase) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$what arrives in $phase.')),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -151,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: Text('$_needsReview need${_needsReview == 1 ? 's' : ''} review'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const LoggedScreen()),
+                      MaterialPageRoute(builder: (_) => const LoggedScreen(onlyNeedsReview: true)),
                     ),
                   ),
                 ),
@@ -171,7 +182,9 @@ class _HomeScreenState extends State<HomeScreen> {
               _BigButton(
                 icon: Icons.edit_note_outlined,
                 label: 'Quick add',
-                onTap: () => _comingSoon('Quick add', 'Phase 3'),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ChatScreen(scanPath: null)),
+                ),
               ),
               const SizedBox(height: 16),
               _BigButton(

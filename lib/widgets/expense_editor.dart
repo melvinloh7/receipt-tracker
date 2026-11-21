@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/draft.dart';
+import 'split_sheet.dart';
 
 /// The editable expense card. Fields the AI guessed are marked amber; missing
 /// ones are red. Editing a field marks it as confirmed by you.
@@ -12,11 +13,15 @@ class ExpenseEditor extends StatefulWidget {
     required this.draft,
     required this.categories,
     required this.onChanged,
+    this.people = const ['Self'],
   });
 
   final ExpenseDraft draft;
   final List<String> categories;
   final VoidCallback onChanged;
+
+  /// Saved people, offered by "Add person".
+  final List<String> people;
 
   @override
   State<ExpenseEditor> createState() => _ExpenseEditorState();
@@ -80,6 +85,45 @@ class _ExpenseEditorState extends State<ExpenseEditor> {
     if (picked == null) return;
     widget.draft.date = picked;
     _changed(ExpenseDraft.fieldDate);
+  }
+
+  Future<void> _addPerson(String? name) async {
+    var n = name;
+    if (n == null) {
+      final ctrl = TextEditingController();
+      n = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Add someone'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(labelText: 'Name'),
+            onSubmitted: (v) => Navigator.pop(context, v),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, ctrl.text), child: const Text('Add')),
+          ],
+        ),
+      );
+      ctrl.dispose();
+    }
+    final clean = n?.trim() ?? '';
+    final d = widget.draft;
+    if (clean.isEmpty || d.who.any((w) => w.toLowerCase() == clean.toLowerCase())) return;
+    d.who = [...d.who, clean];
+    d.customSplit = null;
+    _who.text = d.who.join(', ');
+    _changed(ExpenseDraft.fieldWho);
+  }
+
+  Future<void> _editSplit() async {
+    if (await showSplitSheet(context, widget.draft)) {
+      widget.onChanged();
+      setState(() {});
+    }
   }
 
   String _money(double v) => '${widget.draft.currency} ${v.toStringAsFixed(2)}';
@@ -241,6 +285,35 @@ class _ExpenseEditorState extends State<ExpenseEditor> {
             padding: const EdgeInsets.only(top: 6, left: 4),
             child: Text(splitText, style: theme.textTheme.bodySmall),
           ),
+        Row(
+          children: [
+            PopupMenuButton<String?>(
+              tooltip: 'Add person',
+              onSelected: _addPerson,
+              itemBuilder: (context) => [
+                for (final p in widget.people)
+                  if (!d.who.any((w) => w.toLowerCase() == p.toLowerCase()))
+                    PopupMenuItem<String?>(value: p, child: Text(p)),
+                const PopupMenuItem<String?>(value: null, child: Text('Someone new…')),
+              ],
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.person_add_alt, size: 20),
+                  SizedBox(width: 6),
+                  Text('Add person'),
+                ]),
+              ),
+            ),
+            const Spacer(),
+            if (d.who.length > 1)
+              TextButton.icon(
+                onPressed: _editSplit,
+                icon: const Icon(Icons.call_split, size: 20),
+                label: const Text('Split…'),
+              ),
+          ],
+        ),
         const SizedBox(height: 14),
         TextField(
           controller: _card,

@@ -42,19 +42,25 @@ class Receipts {
   /// Saves the receipt straight away (photo, thumbnail, your note) with
   /// "Reading receipt…" status, and starts the AI read in the background.
   /// Returns the new receipt's id.
-  static Future<String> start({required CompressedReceipt photo, required String note}) async {
+  /// [photo] is null for Quick add.
+  static Future<String> start({required CompressedReceipt? photo, required String note}) async {
     final id = _newId();
-    final full = File(p.join((await _dir('receipts')).path, '$id.jpg'));
-    final thumb = File(p.join((await _dir('thumbs')).path, '$id.jpg'));
-    await full.writeAsBytes(photo.full, flush: true);
-    await thumb.writeAsBytes(photo.thumb, flush: true);
+    String? fullPath, thumbPath;
+    if (photo != null) {
+      final full = File(p.join((await _dir('receipts')).path, '$id.jpg'));
+      final thumb = File(p.join((await _dir('thumbs')).path, '$id.jpg'));
+      await full.writeAsBytes(photo.full, flush: true);
+      await thumb.writeAsBytes(photo.thumb, flush: true);
+      fullPath = full.path;
+      thumbPath = thumb.path;
+    }
 
     await Db.instance.insert(Expense(
       id: id,
-      localPath: full.path,
-      thumbPath: thumb.path,
-      photoBytes: photo.full.length,
-      uploadState: UploadState.pending,
+      localPath: fullPath,
+      thumbPath: thumbPath,
+      photoBytes: photo?.full.length,
+      uploadState: photo == null ? UploadState.none : UploadState.pending,
       aiState: AiState.reading,
       aiNote: note.trim(),
     ));
@@ -117,6 +123,37 @@ class Receipts {
     } finally {
       uploadPending(); // the photo goes to Drive either way
     }
+  }
+
+  /// Retries AI reads that failed because there was no connection
+  /// (e.g. on a flight). Other failures wait for you to tap Retry.
+  static Future<void> retryFailedReads() async {
+    final network = RegExp(
+      r'ClientException|SocketException|TimeoutException|Could not reach|Failed host lookup|Connection',
+      caseSensitive: false,
+    );
+    for (final e in await Db.instance.withAiState(AiState.failed)) {
+      if (!isReading(e.id) && network.hasMatch(e.aiError ?? '')) read(e.id);
+    }
+  }
+
+  /// Other receipts that look like the same purchase: same amount, same
+  /// date, and a similar merchant or description.
+  static Future<List<Expense>> possibleDuplicates(String id) async {
+    final e = await Db.instance.get(id);
+    if (e == null || e.amount == null || e.date == null) return const [];
+    Set<String> words(Expense x) => '${x.merchant ?? ''} ${x.description}'
+        .toLowerCase()
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((w) => w.length >= 3)
+        .toSet();
+    final mine = words(e);
+    return (await Db.instance.all()).where((o) {
+      if (o.id == e.id || o.date != e.date || o.amount == null) return false;
+      if ((o.amount! - e.amount!).abs() >= 0.005) return false;
+      final theirs = words(o);
+      return mine.isEmpty || theirs.isEmpty || mine.intersection(theirs).isNotEmpty;
+    }).toList();
   }
 
   /// Restarts AI reads that were cut off (e.g. Android closed the app).

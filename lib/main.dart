@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'services/background.dart';
 import 'services/google_auth.dart';
+import 'services/ledger_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,7 @@ Future<void> main() async {
   } catch (_) {
     // Notifications are optional; work still runs while the app is open.
   }
+  LedgerSync.start(); // copies changes to the ledger's Expenses tab
   runApp(const ReceiptTrackerApp());
 }
 

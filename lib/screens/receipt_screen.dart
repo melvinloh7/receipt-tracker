@@ -7,6 +7,7 @@ import '../data/draft.dart';
 import '../data/expense.dart';
 import '../services/receipts.dart';
 import '../services/settings_store.dart';
+import '../widgets/duplicate_banner.dart';
 import '../widgets/expense_editor.dart';
 
 /// Review screen: the photo beside the fields, so AI guesses can be checked.
@@ -23,6 +24,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   ExpenseDraft? _draft;
   Future<File?>? _photo;
   List<String> _categories = SettingsStore.defaultCategories;
+  List<String> _people = const ['Self'];
   bool _busy = false;
   bool _dirty = false;
 
@@ -60,11 +62,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   Future<void> _load() async {
     final e = await Db.instance.get(widget.expenseId);
     final cats = await SettingsStore().categories();
+    final people = await SettingsStore().people();
     if (!mounted) return;
     setState(() {
       _e = e;
       _draft = e == null ? null : ExpenseDraft.fromExpense(e);
       _categories = cats;
+      _people = people;
       _dirty = false;
       _photo = e == null || !e.hasPhoto ? null : Receipts.photoFile(e);
     });
@@ -164,6 +168,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               children: [
                 _photoView(theme),
                 const SizedBox(height: 8),
+                if (e.aiState != AiState.reading)
+                  DuplicateBanner(key: ValueKey(e.updatedAt), expenseId: e.id),
                 if (e.aiState == AiState.reading)
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -204,6 +210,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 ExpenseEditor(
                   draft: d,
                   categories: _categories,
+                  people: _people,
                   onChanged: () => setState(() => _dirty = true),
                 ),
                 const SizedBox(height: 16),
