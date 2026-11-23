@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../config.dart';
 import '../services/background.dart';
 import '../services/gemini.dart';
 import '../services/google_api.dart';
@@ -411,6 +412,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               // Selectable, so an error can be copied and pasted to Claude.
               subtitle: SelectableText(c.detail),
             ),
+          const SizedBox(height: 32),
+          Center(
+            child: Text(
+              'Receipts · Build ${AppConfig.buildNumber}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         ],
       ),
     );

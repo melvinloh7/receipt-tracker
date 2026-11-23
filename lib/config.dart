@@ -12,6 +12,9 @@ class AppConfig {
   static const webClientId =
       '4896366558-r7su3se43fi58jrjob0jokth4ete9j09.apps.googleusercontent.com';
 
+  /// Build number, set by the automatic build ("dev" for local builds).
+  static const buildNumber = String.fromEnvironment('BUILD_NUMBER', defaultValue: 'dev');
+
   /// Default Gemini model; can be changed in Settings.
   static const defaultGeminiModel = 'gemini-3.8-flash';
 }
