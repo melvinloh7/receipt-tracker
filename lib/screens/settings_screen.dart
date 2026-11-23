@@ -41,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _qualityCtrl = TextEditingController();
   bool _greyscale = true;
   final _peopleCtrl = TextEditingController();
+  final _backupCtrl = TextEditingController();
   bool _busy = false;
   String? _authError;
   List<_Check> _checks = const [];
@@ -60,6 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _longReceiptCtrl.text = '${c.longReceiptSide}';
     _qualityCtrl.text = '${c.quality}';
     _greyscale = c.greyscale;
+    _backupCtrl.text = await _settings.backupGeminiModel();
     _peopleCtrl.text = (await _settings.people()).where((p) => p != 'Self').join(', ');
     if (mounted) setState(() {});
   }
@@ -73,6 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _longReceiptCtrl.dispose();
     _qualityCtrl.dispose();
     _peopleCtrl.dispose();
+    _backupCtrl.dispose();
     super.dispose();
   }
 
@@ -97,6 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _save() async {
     await _settings.save(geminiKey: _keyCtrl.text, geminiModel: _modelCtrl.text);
     await _settings.savePeople(_peopleCtrl.text.split(','));
+    await _settings.saveBackupModel(_backupCtrl.text);
     const d = CompressionSettings();
     await _settings.saveCompression(CompressionSettings(
       longSide: int.tryParse(_longSideCtrl.text) ?? d.longSide,
@@ -331,6 +335,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             controller: _modelCtrl,
             decoration: const InputDecoration(
               labelText: 'Model',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _backupCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Backup model (used when the main one is busy)',
+              helperText: 'Leave empty to turn off. Saved with Save settings.',
               border: OutlineInputBorder(),
             ),
           ),

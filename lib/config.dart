@@ -17,4 +17,8 @@ class AppConfig {
 
   /// Default Gemini model; can be changed in Settings.
   static const defaultGeminiModel = 'gemini-3.8-flash';
+
+  /// Tried once when the main model is busy. Each model has its own free
+  /// daily allowance. Can be changed (or cleared) in Settings.
+  static const backupGeminiModel = 'gemini-3.7-flash';
 }

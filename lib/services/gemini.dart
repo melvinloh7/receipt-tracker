@@ -53,6 +53,9 @@ class GeminiClient {
 
   /// General call: [parts] (text and images), an optional [system]
   /// instruction, and [json] to ask for a JSON-only reply.
+  ///
+  /// If the main model stays busy (Google's "high demand" 503), tries the
+  /// backup model from Settings once before giving up.
   Future<String> generate({
     required List<Map<String, Object>> parts,
     String? system,
@@ -60,8 +63,35 @@ class GeminiClient {
     String thinkingLevel = 'low',
     void Function(int attempt, int of)? onRetry,
   }) async {
+    final main = await _settings.geminiModel();
+    try {
+      return await _generateWith(main,
+          parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
+    } on GeminiBusy {
+      final backup = await _settings.backupGeminiModel();
+      if (backup.isEmpty || backup == main) rethrow;
+      onRetry?.call(1, 1);
+      try {
+        return await _generateWith(backup,
+            parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
+      } on GeminiBusy {
+        throw GeminiBusy('$main and $backup');
+      }
+    }
+  }
+
+  /// Waits between retries when Gemini is busy: demand spikes take a while.
+  static const _busyWaits = [Duration(seconds: 5), Duration(seconds: 15), Duration(seconds: 30)];
+
+  Future<String> _generateWith(
+    String model, {
+    required List<Map<String, Object>> parts,
+    String? system,
+    bool json = false,
+    String thinkingLevel = 'low',
+    void Function(int attempt, int of)? onRetry,
+  }) async {
     final key = await _requireKey();
-    final model = await _settings.geminiModel();
     final uri = Uri.parse('$_base/$model:streamGenerateContent?alt=sse');
     // Built per attempt: if the model rejects the thinking level, the next
     // attempt leaves it out and the model uses its own default.
@@ -123,9 +153,11 @@ class GeminiClient {
       }
       if (attempt < _attempts) {
         onRetry?.call(attempt + 1, _attempts);
-        await Future<void>.delayed(Duration(seconds: attempt * 2));
+        final busy = lastError is _HttpError && lastError.status == 503;
+        await Future<void>.delayed(busy ? _busyWaits[attempt - 1] : Duration(seconds: attempt * 2));
       }
     }
+    if (lastError is _HttpError && lastError.status == 503) throw GeminiBusy(model);
     throw Exception('Could not reach Gemini after $_attempts tries: $lastError');
   }
 
@@ -160,6 +192,18 @@ class GeminiClient {
     if (key.isEmpty) throw StateError('No Gemini API key. Add it in Settings.');
     return key;
   }
+}
+
+/// Google's servers for the model are overloaded ("high demand"). Temporary;
+/// worth retrying a little later.
+class GeminiBusy implements Exception {
+  GeminiBusy(this.model);
+  final String model;
+
+  @override
+  String toString() => 'Gemini is busy right now (Google reports high demand for $model). '
+      'This is on Google\'s side and usually passes within minutes. The app retries '
+      'automatically next time you open it, or tap Retry.';
 }
 
 /// Google's free tier said no: too many requests per minute, or the daily

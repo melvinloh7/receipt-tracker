@@ -12,6 +12,7 @@ class SettingsStore {
   );
   static const _kGeminiKey = 'gemini_api_key';
   static const _kGeminiModel = 'gemini_model';
+  static const _kBackupModel = 'gemini_backup_model';
   static const _kLongSide = 'compress_long_side';
   static const _kLongReceiptSide = 'compress_long_receipt_side';
   static const _kQuality = 'compress_quality';
@@ -26,6 +27,12 @@ class SettingsStore {
   ];
 
   Future<String> geminiKey() async => await _storage.read(key: _kGeminiKey) ?? '';
+
+  Future<String> backupGeminiModel() async =>
+      (await _storage.read(key: _kBackupModel) ?? AppConfig.backupGeminiModel).trim();
+
+  Future<void> saveBackupModel(String model) =>
+      _storage.write(key: _kBackupModel, value: model.trim());
 
   Future<String> geminiModel() async =>
       await _storage.read(key: _kGeminiModel) ?? AppConfig.defaultGeminiModel;

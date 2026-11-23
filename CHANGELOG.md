@@ -7,6 +7,14 @@ current app; your data stays.
 Builds not listed (3–6, 13, 15, 17, 19) were repeat or failed builds with no
 changes of their own.
 
+## Build 25 · 23 Nov 2026
+- Fixed "This model is currently experiencing high demand" (Gemini 503):
+  the app now waits longer between retries (about 5, 15 and 30 seconds), then
+  tries a backup model once (gemini-3.7-flash, set in Settings; each model has
+  its own free daily allowance).
+- If Gemini is still busy, the receipt says so plainly and is retried
+  automatically next time you open the app.
+
 ## Build 24 · 23 Nov 2026
 - Settings now shows which build you have (at the bottom).
 - Each download page now lists what changed in that build.

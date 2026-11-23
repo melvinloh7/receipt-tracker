@@ -148,7 +148,7 @@ class Receipts {
   /// (e.g. on a flight). Other failures wait for you to tap Retry.
   static Future<void> retryFailedReads() async {
     final network = RegExp(
-      r'ClientException|SocketException|TimeoutException|Could not reach|Failed host lookup|Connection',
+      r'ClientException|SocketException|TimeoutException|Could not reach|Failed host lookup|Connection|is busy',
       caseSensitive: false,
     );
     final limited = _limitedUntil;
