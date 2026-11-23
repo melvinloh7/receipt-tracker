@@ -75,8 +75,8 @@ class GeminiClient {
         return await _generateWith(backup,
             busyTries: 1,
             parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
-      } on GeminiBusy {
-        throw GeminiBusy('$main and $backup');
+      } on GeminiBusy catch (e) {
+        throw GeminiBusy('tried $main and $backup', googleSaid: e.googleSaid);
       }
     }
   }
@@ -149,7 +149,7 @@ class GeminiClient {
         if (e.status != 503) rethrow;
         lastError = e;
         busy++;
-        if (busy >= busyTries) throw GeminiBusy(model);
+        if (busy >= busyTries) throw GeminiBusy(model, googleSaid: GeminiBusy.describe(e.body));
       } on http.ClientException catch (e) {
         lastError = e;
       } on SocketException catch (e) {
@@ -165,7 +165,9 @@ class GeminiClient {
         await Future<void>.delayed(busy ? _busyWaits[attempt - 1] : Duration(seconds: attempt * 2));
       }
     }
-    if (lastError is _HttpError && lastError.status == 503) throw GeminiBusy(model);
+    if (lastError is _HttpError && lastError.status == 503) {
+      throw GeminiBusy(model, googleSaid: GeminiBusy.describe(lastError.body));
+    }
     throw Exception('Could not reach Gemini after $_attempts tries: $lastError');
   }
 
@@ -207,13 +209,27 @@ class GeminiClient {
 /// Google's servers for the model are overloaded ("high demand"). Temporary;
 /// worth retrying a little later.
 class GeminiBusy implements Exception {
-  GeminiBusy(this.model);
+  GeminiBusy(this.model, {this.googleSaid});
   final String model;
 
+  /// Google's own words, e.g. "503 UNAVAILABLE: This model is currently
+  /// experiencing high demand…"
+  final String? googleSaid;
+
+  /// Pulls "code STATUS: message" out of a Google error body.
+  static String? describe(String body) {
+    try {
+      final err = (jsonDecode(body) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
+      return '${err['code']} ${err['status']}: ${err['message']}';
+    } catch (_) {
+      return body.length > 300 ? '${body.substring(0, 300)}…' : body;
+    }
+  }
+
   @override
-  String toString() => 'Gemini is busy right now (Google reports high demand for $model). '
-      'This is on Google\'s side and usually passes within minutes. The app retries '
-      'automatically next time you open it, or tap Retry.';
+  String toString() => 'Gemini is busy right now ($model). The app retries automatically '
+      'next time you open it, or tap Retry.'
+      '${googleSaid == null ? '' : '\n\nGoogle said: $googleSaid'}';
 }
 
 /// Google's free tier said no: too many requests per minute, or the daily

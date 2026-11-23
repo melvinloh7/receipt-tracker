@@ -7,6 +7,10 @@ current app; your data stays.
 Builds not listed (3–6, 13, 15, 17, 19) were repeat or failed builds with no
 changes of their own.
 
+## Build 27 · 23 Nov 2026
+- "Gemini is busy" messages now include Google's own reply (e.g. "503
+  UNAVAILABLE: This model is currently experiencing high demand…").
+
 ## Build 26 · 23 Nov 2026
 - Uses far fewer of your 20 free Gemini requests a day:
   - when Gemini is busy, at most 2 tries on the main model and 1 on the
