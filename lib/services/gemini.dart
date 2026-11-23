@@ -73,6 +73,7 @@ class GeminiClient {
       onRetry?.call(1, 1);
       try {
         return await _generateWith(backup,
+            busyTries: 1,
             parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
       } on GeminiBusy {
         throw GeminiBusy('$main and $backup');
@@ -83,8 +84,12 @@ class GeminiClient {
   /// Waits between retries when Gemini is busy: demand spikes take a while.
   static const _busyWaits = [Duration(seconds: 5), Duration(seconds: 15), Duration(seconds: 30)];
 
+  /// [busyTries]: how many requests to spend while Google reports "high
+  /// demand" before giving up on this model (each one counts against the
+  /// free daily allowance).
   Future<String> _generateWith(
     String model, {
+    int busyTries = 2,
     required List<Map<String, Object>> parts,
     String? system,
     bool json = false,
@@ -113,10 +118,11 @@ class GeminiClient {
     });
 
     Object? lastError;
+    var busy = 0;
     for (var attempt = 1; attempt <= _attempts; attempt++) {
       final client = http.Client();
       try {
-        final text = await _streamOnce(client, uri, key, body()).timeout(_timeout);
+        final text = await _streamOnce(client, model, uri, key, body()).timeout(_timeout);
         return text;
       } on _HttpError catch (e) {
         if (e.status == 400 && useThinking && e.body.toLowerCase().contains('thinking')) {
@@ -139,9 +145,11 @@ class GeminiClient {
           }
           throw limit;
         }
-        // Otherwise retry only when Google says it is busy.
+        // Otherwise retry only when Google says it is busy, and only a little.
         if (e.status != 503) rethrow;
         lastError = e;
+        busy++;
+        if (busy >= busyTries) throw GeminiBusy(model);
       } on http.ClientException catch (e) {
         lastError = e;
       } on SocketException catch (e) {
@@ -161,7 +169,9 @@ class GeminiClient {
     throw Exception('Could not reach Gemini after $_attempts tries: $lastError');
   }
 
-  Future<String> _streamOnce(http.Client client, Uri uri, String key, String body) async {
+  Future<String> _streamOnce(http.Client client, String model, Uri uri, String key, String body) async {
+    // Every request sent counts against the free daily allowance.
+    await _settings.countRequest(model);
     final req = http.Request('POST', uri)
       ..headers['x-goog-api-key'] = key
       ..headers['Content-Type'] = 'application/json'

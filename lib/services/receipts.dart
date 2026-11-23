@@ -157,7 +157,10 @@ class Receipts {
     final quota = RegExp(r'429|quota|limit reached|RESOURCE_EXHAUSTED', caseSensitive: false);
     for (final e in await Db.instance.withAiState(AiState.failed)) {
       final err = e.aiError ?? '';
-      if (!isReading(e.id) && network.hasMatch(err) && !quota.hasMatch(err)) read(e.id);
+      // At most one automatic retry per receipt every 15 minutes, however
+      // often the app is opened.
+      final recent = DateTime.now().difference(e.updatedAt) < const Duration(minutes: 15);
+      if (!isReading(e.id) && !recent && network.hasMatch(err) && !quota.hasMatch(err)) read(e.id);
     }
   }
 

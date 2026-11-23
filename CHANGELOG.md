@@ -7,6 +7,15 @@ current app; your data stays.
 Builds not listed (3–6, 13, 15, 17, 19) were repeat or failed builds with no
 changes of their own.
 
+## Build 26 · 23 Nov 2026
+- Uses far fewer of your 20 free Gemini requests a day:
+  - when Gemini is busy, at most 2 tries on the main model and 1 on the
+    backup (was up to 3 + 3);
+  - a failed receipt is retried automatically on opening the app at most once
+    every 15 minutes (was every time you opened it).
+- Settings shows how many Gemini requests this phone has used since the daily
+  reset (around 4pm Singapore time), per model.
+
 ## Build 25 · 23 Nov 2026
 - Fixed "This model is currently experiencing high demand" (Gemini 503):
   the app now waits longer between retries (about 5, 15 and 30 seconds), then

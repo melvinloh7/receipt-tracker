@@ -13,6 +13,7 @@ class SettingsStore {
   static const _kGeminiKey = 'gemini_api_key';
   static const _kGeminiModel = 'gemini_model';
   static const _kBackupModel = 'gemini_backup_model';
+  static const _kRequestCounts = 'gemini_request_counts';
   static const _kLongSide = 'compress_long_side';
   static const _kLongReceiptSide = 'compress_long_receipt_side';
   static const _kQuality = 'compress_quality';
@@ -27,6 +28,33 @@ class SettingsStore {
   ];
 
   Future<String> geminiKey() async => await _storage.read(key: _kGeminiKey) ?? '';
+
+  /// Google's free allowance resets at midnight Pacific time (4pm Singapore
+  /// in winter, 3pm in summer). Requests are counted per Pacific day.
+  static String _quotaDay() {
+    final pacific = DateTime.now().toUtc().subtract(const Duration(hours: 8));
+    return '${pacific.year}-${pacific.month}-${pacific.day}';
+  }
+
+  /// Gemini requests sent from this phone since the last reset, per model.
+  Future<Map<String, int>> requestCounts() async {
+    try {
+      final raw = jsonDecode(await _storage.read(key: _kRequestCounts) ?? '{}') as Map;
+      if (raw['day'] != _quotaDay()) return {};
+      return (raw['counts'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> countRequest(String model) async {
+    final counts = await requestCounts();
+    counts[model] = (counts[model] ?? 0) + 1;
+    await _storage.write(
+      key: _kRequestCounts,
+      value: jsonEncode({'day': _quotaDay(), 'counts': counts}),
+    );
+  }
 
   Future<String> backupGeminiModel() async =>
       (await _storage.read(key: _kBackupModel) ?? AppConfig.backupGeminiModel).trim();

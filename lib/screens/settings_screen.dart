@@ -42,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _greyscale = true;
   final _peopleCtrl = TextEditingController();
   final _backupCtrl = TextEditingController();
+  Map<String, int> _requests = const {};
   bool _busy = false;
   String? _authError;
   List<_Check> _checks = const [];
@@ -62,6 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _qualityCtrl.text = '${c.quality}';
     _greyscale = c.greyscale;
     _backupCtrl.text = await _settings.backupGeminiModel();
+    _requests = await _settings.requestCounts();
     _peopleCtrl.text = (await _settings.people()).where((p) => p != 'Self').join(', ');
     if (mounted) setState(() {});
   }
@@ -201,6 +203,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Each check records its own error on screen.
     }
     _ticker?.cancel();
+    _requests = await _settings.requestCounts();
     if (mounted) setState(() => _busy = false);
   }
 
@@ -339,6 +342,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              _requests.isEmpty
+                  ? 'Gemini requests since the 4pm reset: none yet'
+                  : 'Gemini requests since the 4pm reset: '
+                      '${_requests.entries.map((e) => '${e.key} ${e.value}').join(' · ')} '
+                      '(free limit about 20 per model per day)',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
           TextField(
             controller: _backupCtrl,
             decoration: const InputDecoration(
