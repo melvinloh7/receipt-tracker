@@ -7,6 +7,12 @@ current app; your data stays.
 Builds not listed (3–6, 13, 15, 17, 19) were repeat or failed builds with no
 changes of their own.
 
+## Build 28 · 26 Nov 2026
+- New default AI model: gemini-3.5-flash-lite (fast, rarely busy).
+- Backups are now a list, tried in order once each if the main model is busy:
+  gemini-3.5-flash, then gemini-3.8-flash. Edit the list in Settings.
+- If you already changed the models in Settings, your choices are kept.
+
 ## Build 27 · 23 Nov 2026
 - "Gemini is busy" messages now include Google's own reply (e.g. "503
   UNAVAILABLE: This model is currently experiencing high demand…").

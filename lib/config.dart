@@ -16,9 +16,10 @@ class AppConfig {
   static const buildNumber = String.fromEnvironment('BUILD_NUMBER', defaultValue: 'dev');
 
   /// Default Gemini model; can be changed in Settings.
-  static const defaultGeminiModel = 'gemini-3.8-flash';
+  /// Main model: fast and, in practice, rarely busy (chosen 26 Nov 2026).
+  static const defaultGeminiModel = 'gemini-3.5-flash-lite';
 
-  /// Tried once when the main model is busy. Each model has its own free
-  /// daily allowance. Can be changed (or cleared) in Settings.
-  static const backupGeminiModel = 'gemini-3.7-flash';
+  /// Tried in order, once each, when the main model is busy. Each model has
+  /// its own free daily allowance. Editable (or clearable) in Settings.
+  static const backupGeminiModels = 'gemini-3.5-flash, gemini-3.8-flash';
 }

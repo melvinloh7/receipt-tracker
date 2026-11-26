@@ -356,8 +356,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextField(
             controller: _backupCtrl,
             decoration: const InputDecoration(
-              labelText: 'Backup model (used when the main one is busy)',
-              helperText: 'Leave empty to turn off. Saved with Save settings.',
+              labelText: 'Backup models, in order (comma-separated)',
+              helperText: 'Tried once each if the main model is busy. Leave empty to turn off.',
               border: OutlineInputBorder(),
             ),
           ),

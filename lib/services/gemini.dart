@@ -55,7 +55,7 @@ class GeminiClient {
   /// instruction, and [json] to ask for a JSON-only reply.
   ///
   /// If the main model stays busy (Google's "high demand" 503), tries the
-  /// backup model from Settings once before giving up.
+  /// backup models from Settings in order, once each, before giving up.
   Future<String> generate({
     required List<Map<String, Object>> parts,
     String? system,
@@ -67,17 +67,26 @@ class GeminiClient {
     try {
       return await _generateWith(main,
           parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
-    } on GeminiBusy {
-      final backup = await _settings.backupGeminiModel();
-      if (backup.isEmpty || backup == main) rethrow;
-      onRetry?.call(1, 1);
-      try {
-        return await _generateWith(backup,
-            busyTries: 1,
-            parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
-      } on GeminiBusy catch (e) {
-        throw GeminiBusy('tried $main and $backup', googleSaid: e.googleSaid);
+    } on GeminiBusy catch (busy) {
+      // Main model busy: try each backup in order, one request each.
+      var last = busy;
+      final tried = [main];
+      for (final backup in await _settings.backupGeminiModels()) {
+        if (tried.contains(backup)) continue;
+        tried.add(backup);
+        onRetry?.call(tried.length, tried.length);
+        try {
+          return await _generateWith(backup,
+              busyTries: 1,
+              parts: parts, system: system, json: json, thinkingLevel: thinkingLevel, onRetry: onRetry);
+        } on GeminiBusy catch (e) {
+          last = e;
+        } on GeminiRateLimit {
+          // That backup's own allowance is used up: move on to the next.
+        }
       }
+      if (tried.length == 1) rethrow;
+      throw GeminiBusy('tried ${tried.join(', ')}', googleSaid: last.googleSaid);
     }
   }
 

@@ -56,8 +56,15 @@ class SettingsStore {
     );
   }
 
+  /// Backup models as typed in Settings (comma-separated, in order).
   Future<String> backupGeminiModel() async =>
-      (await _storage.read(key: _kBackupModel) ?? AppConfig.backupGeminiModel).trim();
+      (await _storage.read(key: _kBackupModel) ?? AppConfig.backupGeminiModels).trim();
+
+  Future<List<String>> backupGeminiModels() async => (await backupGeminiModel())
+      .split(',')
+      .map((m) => m.trim())
+      .where((m) => m.isNotEmpty)
+      .toList();
 
   Future<void> saveBackupModel(String model) =>
       _storage.write(key: _kBackupModel, value: model.trim());
